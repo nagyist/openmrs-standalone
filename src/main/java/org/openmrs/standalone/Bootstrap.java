@@ -91,7 +91,7 @@ public class Bootstrap {
 	 * @param args the command line arguments.
 	 * @param showSplashScreen determines whether the splashscreen is to be shown.
 	 */
-	private void launch(String args, boolean showSplashScreen) {
+	private void launch(String[] args, boolean showSplashScreen) {
 		
 		Process process = null;
 		
@@ -99,11 +99,33 @@ public class Bootstrap {
 			Properties properties = OpenmrsUtil.getRuntimeProperties(StandaloneUtil.getContextName());
 			String vm_arguments = properties.getProperty("vm_arguments", "-Xmx512m -Xms512m -XX:NewSize=128m --add-exports=java.desktop/com.apple.eawt=ALL-UNNAMED");
 
+			String javaHome = System.getProperty("java.home");
+			String javaExecutable = javaHome + java.io.File.separator + "bin" + java.io.File.separator + "java";
+			if (System.getProperty("os.name").toLowerCase().contains("win")) {
+				javaExecutable += ".exe";
+			}
+
+			java.util.List<String> command = new java.util.ArrayList<String>();
+			command.add(javaExecutable);
+			if (showSplashScreen) {
+				command.add("-splash:splashscreen-loading.png");
+			}
+			if (vm_arguments != null && !vm_arguments.trim().isEmpty()) {
+				for (String arg : vm_arguments.trim().split("\\s+")) {
+					command.add(arg);
+				}
+			}
+			command.add("-cp");
+			command.add(StandaloneUtil.getJarFileName());
+			command.add("org.openmrs.standalone.ApplicationController");
+			if (args != null) {
+				for (String arg : args) {
+					command.add(arg);
+				}
+			}
+
 			// Spin up a separate java process calling a non-default Main class in our Jar.  
-			process = Runtime.getRuntime().exec(
-			    "java " + (showSplashScreen ? "-splash:splashscreen-loading.png" : "")
-			            + " " + vm_arguments + " -cp "
-			            + StandaloneUtil.getJarFileName() + " org.openmrs.standalone.ApplicationController" + args);
+			process = Runtime.getRuntime().exec(command.toArray(new String[0]));
 			
 			// Proxy the System.out and System.err from the spawned process back to the main window.  This
 			// is important or the spawned process could block.
@@ -140,12 +162,37 @@ public class Bootstrap {
 	 * @param args the command line arguments.
 	 */
 	public static void main(String[] args) {
+		String javaVersion = System.getProperty("java.version");
+		int majorVersion = 0;
+		if (javaVersion != null) {
+			try {
+				if (javaVersion.startsWith("1.")) {
+					majorVersion = Integer.parseInt(javaVersion.substring(2, 3));
+				} else {
+					majorVersion = Integer.parseInt(javaVersion.split("[\\.-]")[0]);
+				}
+			} catch (Exception e) {
+				System.err.println("Failed to parse java.version: " + javaVersion);
+			}
+		}
+
+		if (majorVersion < 17 || majorVersion > 21) {
+			String message = "OpenMRS Standalone requires Java 17 through 21 (Java 17 is recommended).\n"
+					+ "You are currently running Java " + javaVersion + ".\n\n"
+					+ (majorVersion >= 24 ? "Java 24+ removes security features required by OpenMRS, causing startup failures.\n"
+							: majorVersion > 21 ? "Java versions above 21 are not yet supported by the bundled components.\n" : "")
+					+ "Please install a supported Java version and use it to run this application.";
+			try {
+				javax.swing.JOptionPane.showMessageDialog(null, message, "Unsupported Java Version", javax.swing.JOptionPane.ERROR_MESSAGE);
+			} catch (Exception e) {
+				System.err.println(message);
+			}
+			System.exit(1);
+		}
+
 		boolean showSplashScreen = true;
 		
-		String commandLineArguments = "";
 		for (String arg : args) {
-			commandLineArguments += (" " + arg);
-			
 			if (arg.contains("commandline"))
 				showSplashScreen = false;
 		}
@@ -163,6 +210,6 @@ public class Bootstrap {
 			}
 		});
 		
-		new Bootstrap().launch(commandLineArguments, showSplashScreen);
+		new Bootstrap().launch(args, showSplashScreen);
 	}
 }
